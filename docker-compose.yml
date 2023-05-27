@@ -1,0 +1,81 @@
+version: '2'
+
+services:
+  db:
+    image: mariadb:latest
+    env_file:
+      - .env
+    ports:
+      - 3306:3306
+    restart: always
+    volumes:
+      - ./pda-mysql:/var/lib/mysql
+    networks:
+      - dns-net
+
+  pdns:
+    image: pschiffe/pdns-mysql
+    hostname: pdns
+    restart: always
+    depends_on:
+      - db
+    ports:
+      - "53:53"
+      - "53:53/udp"
+      - "8081:8081"
+    env_file:
+      - .env
+    networks:
+      - dns-net
+
+  pdns_admin:
+    image: powerdnsadmin/pda-legacy:latest
+    hostname: pdnsadmin
+    container_name: pdns_admin
+    ports:
+      - "8080:80"
+    depends_on:
+      - db
+    restart: always
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+    env_file:
+      - .env
+    networks:
+      - dns-net
+
+  nginx:
+    image: nginx:1.15-alpine
+    restart: unless-stopped
+    build:
+      context: ./nginx
+    container_name: nginx
+    hostname: nginx
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+      - ./.env:/etc/nginx/.env
+    ports:
+      - "80:80"
+      - "443:443"
+    command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
+    networks:
+      - dns-net
+    env_file:
+      - .env
+
+  certbot:
+    image: certbot/certbot
+    restart: unless-stopped
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    networks:
+      - dns-net
+
+networks:
+  dns-net:
+    external: true
